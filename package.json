@@ -1,6 +1,6 @@
 {
   "name": "bankadsapi",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "scripts": {
     "dev": "bun run --hot src/index.ts"
   },
