@@ -82,7 +82,6 @@ export const getSegment = (balance: number): string => {
   if (balance < TARGETING_CONFIG.segmentThresholds.low) return "low";
   if (balance < TARGETING_CONFIG.segmentThresholds.mass) return "mass";
   if (balance < TARGETING_CONFIG.segmentThresholds.affluent) return "affluent";
-  return "hnw";
 };
 
 /** Get current time slot name */
