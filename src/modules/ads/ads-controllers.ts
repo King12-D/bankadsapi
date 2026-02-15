@@ -22,7 +22,7 @@ export const serveAds = async (c: any) => {
     body = await c.req.json().catch(() => ({}));
     const { balance, channel = "ATM", customerId } = body;
 
-    if (!customerId) {
+    if (!customerId || (typeof customerId === "string" && customerId.trim() === "")) {
       return c.json({ error: "customerId is required" }, 400);
     }
 

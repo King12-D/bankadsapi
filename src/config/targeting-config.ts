@@ -65,6 +65,18 @@ export const TARGETING_CONFIG = {
   },
 } as const;
 
+// ─── Runtime validation ──────────────────────────────────────────────────────
+
+const weightSum = Object.values(TARGETING_CONFIG.scoreWeights).reduce(
+  (sum, w) => sum + w,
+  0,
+);
+if (Math.abs(weightSum - 1.0) > 0.001) {
+  throw new Error(
+    `[targeting-config] scoreWeights must sum to 1.0, got ${weightSum}`,
+  );
+}
+
 /** Segment derivation from balance */
 export const getSegment = (balance: number): string => {
   if (balance < TARGETING_CONFIG.segmentThresholds.low) return "low";

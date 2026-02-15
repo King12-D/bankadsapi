@@ -45,6 +45,7 @@ const adsSchema = new Schema(
     timeSlots: {
       type: [String],
       enum: ["morning", "afternoon", "evening", "night"],
+      index: true,
     },
 
     // Ad scheduling

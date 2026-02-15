@@ -1,13 +1,23 @@
 import { Context, Next } from "hono";
-import { redis } from "../../config/redis";
+import { redis, isRedisAvailable } from "../../config/redis";
 import { TARGETING_CONFIG } from "../../config/targeting-config";
+import { RATE_LIMIT_TIERS, type RateLimitTier } from "../../modules/models/apikey-model";
 
 /**
  * Redis sliding-window rate limiter middleware.
- * Uses sorted sets with timestamps for precise sliding windows.
+ *
+ * Dual-layer limiting:
+ *   Layer 1 — Per-IP rate limit (public abuse prevention)
+ *   Layer 2 — Per-API-key rate limit (bank tier-based, if x-api-key present)
+ *
  * Falls back to allowing requests if Redis is unavailable.
  */
 export const rateLimiter = async (c: Context, next: Next) => {
+  if (!isRedisAvailable()) {
+    await next();
+    return;
+  }
+
   const { windowSeconds, maxRequests } = TARGETING_CONFIG.rateLimit;
 
   try {
@@ -16,23 +26,14 @@ export const rateLimiter = async (c: Context, next: Next) => {
       c.req.header("x-real-ip") ||
       "unknown";
 
-    const key = `ratelimit:${ip}:${c.req.path}`;
-    const now = Date.now();
-    const windowStart = now - windowSeconds * 1000;
+    // ── Layer 1: Per-IP rate limit ────────────────────────────────────
+    const ipKey = `ratelimit:ip:${ip}:${c.req.path}`;
+    const ipResult = await checkRateLimit(ipKey, windowSeconds, maxRequests);
 
-    // Atomic pipeline: clean old entries, add current, count, set expiry
-    const pipeline = redis.pipeline();
-    pipeline.zremrangebyscore(key, 0, windowStart);
-    pipeline.zadd(key, now, `${now}:${Math.random().toString(36).slice(2, 8)}`);
-    pipeline.zcard(key);
-    pipeline.expire(key, windowSeconds);
-
-    const results = await pipeline.exec();
-
-    // results[2] = [error, count] from zcard
-    const requestCount = (results?.[2]?.[1] as number) ?? 0;
-
-    if (requestCount > maxRequests) {
+    if (ipResult.exceeded) {
+      console.warn(
+        `[rate-limit] IP ${ip} exceeded limit (${ipResult.count}/${maxRequests}) on ${c.req.path}`,
+      );
       c.header("Retry-After", String(windowSeconds));
       c.header("X-RateLimit-Limit", String(maxRequests));
       c.header("X-RateLimit-Remaining", "0");
@@ -42,9 +43,52 @@ export const rateLimiter = async (c: Context, next: Next) => {
       );
     }
 
-    // Set rate limit headers
-    c.header("X-RateLimit-Limit", String(maxRequests));
-    c.header("X-RateLimit-Remaining", String(maxRequests - requestCount));
+    // ── Layer 2: Per-API-key rate limit (if present) ──────────────────
+    const apiKey = c.req.header("x-api-key");
+    if (apiKey) {
+      const bank = c.get("bank") as any;
+      const tier: RateLimitTier = bank?.rateLimitTier || "standard";
+      const tierConfig = RATE_LIMIT_TIERS[tier];
+
+      const apiKeyHash = apiKey.slice(-8); // last 8 chars for key privacy
+      const apiKeyKey = `ratelimit:apikey:${apiKeyHash}:${c.req.path}`;
+      const apiKeyResult = await checkRateLimit(
+        apiKeyKey,
+        tierConfig.windowSeconds,
+        tierConfig.maxRequests,
+      );
+
+      if (apiKeyResult.exceeded) {
+        console.warn(
+          `[rate-limit] API key ...${apiKeyHash} (tier:${tier}) exceeded limit ` +
+            `(${apiKeyResult.count}/${tierConfig.maxRequests}) on ${c.req.path}`,
+        );
+        c.header("Retry-After", String(tierConfig.windowSeconds));
+        c.header("X-RateLimit-Limit", String(tierConfig.maxRequests));
+        c.header("X-RateLimit-Remaining", "0");
+        return c.json(
+          {
+            error: "API key rate limit exceeded",
+            tier,
+            retryAfter: tierConfig.windowSeconds,
+          },
+          429,
+        );
+      }
+
+      c.header("X-RateLimit-Limit", String(tierConfig.maxRequests));
+      c.header(
+        "X-RateLimit-Remaining",
+        String(tierConfig.maxRequests - apiKeyResult.count),
+      );
+    } else {
+      // No API key — use IP-based headers
+      c.header("X-RateLimit-Limit", String(maxRequests));
+      c.header(
+        "X-RateLimit-Remaining",
+        String(maxRequests - ipResult.count),
+      );
+    }
 
     await next();
   } catch (error) {
@@ -53,3 +97,29 @@ export const rateLimiter = async (c: Context, next: Next) => {
     await next();
   }
 };
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Atomic sliding-window check using Redis sorted set + pipeline.
+ * Returns whether the limit was exceeded and the current count.
+ */
+async function checkRateLimit(
+  key: string,
+  windowSeconds: number,
+  maxRequests: number,
+): Promise<{ exceeded: boolean; count: number }> {
+  const now = Date.now();
+  const windowStart = now - windowSeconds * 1000;
+
+  const pipeline = redis.pipeline();
+  pipeline.zremrangebyscore(key, 0, windowStart);
+  pipeline.zadd(key, now, `${now}:${Math.random().toString(36).slice(2, 8)}`);
+  pipeline.zcard(key);
+  pipeline.expire(key, windowSeconds);
+
+  const results = await pipeline.exec();
+  const count = (results?.[2]?.[1] as number) ?? 0;
+
+  return { exceeded: count > maxRequests, count };
+}
