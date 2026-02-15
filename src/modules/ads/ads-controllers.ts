@@ -1,6 +1,10 @@
 import { Ads } from "./ads-models";
 import { redis, isRedisAvailable } from "../../config/redis";
-import { TARGETING_CONFIG, getSegment, getCurrentTimeSlot } from "../../config/targeting-config";
+import {
+  TARGETING_CONFIG,
+  getSegment,
+  getCurrentTimeSlot,
+} from "../../config/targeting-config";
 import {
   getUserProfile,
   recordImpression,
@@ -10,8 +14,7 @@ import {
   type AdDocument,
 } from "./targeting-engine";
 
-// ─── Serve Ads (Targeting Engine) ────────────────────────────────────────────
-
+//Serve ads controller with robust error handling, detailed logging, and smart caching strategies for optimal performance and reliability.
 export const serveAds = async (c: any) => {
   const startTime = Date.now();
   const log: string[] = [];
@@ -22,14 +25,25 @@ export const serveAds = async (c: any) => {
     body = await c.req.json().catch(() => ({}));
     const { balance, channel = "ATM", customerId } = body;
 
-    if (!customerId || (typeof customerId === "string" && customerId.trim() === "")) {
+    if (
+      !customerId ||
+      (typeof customerId === "string" && customerId.trim() === "")
+    ) {
       return c.json({ error: "customerId is required" }, 400);
     }
 
     // Input sanitization: cap length and strip cache-key-breaking chars
     const MAX_CUSTOMER_ID_LEN = 64;
-    if (typeof customerId !== "string" || customerId.length > MAX_CUSTOMER_ID_LEN) {
-      return c.json({ error: `customerId must be a string of max ${MAX_CUSTOMER_ID_LEN} characters` }, 400);
+    if (
+      typeof customerId !== "string" ||
+      customerId.length > MAX_CUSTOMER_ID_LEN
+    ) {
+      return c.json(
+        {
+          error: `customerId must be a string of max ${MAX_CUSTOMER_ID_LEN} characters`,
+        },
+        400,
+      );
     }
     const safeCustomerId = customerId.replace(/[:\s]/g, "_");
 
@@ -49,7 +63,9 @@ export const serveAds = async (c: any) => {
         const cached = await redis.get(cacheKey);
         if (cached) {
           log.push("cache=HIT");
-          console.log(`[serveAds] ${log.join(" | ")} | ${Date.now() - startTime}ms`);
+          console.log(
+            `[serveAds] ${log.join(" | ")} | ${Date.now() - startTime}ms`,
+          );
           return c.json(JSON.parse(cached));
         }
       } catch {
@@ -58,18 +74,22 @@ export const serveAds = async (c: any) => {
     }
     log.push("cache=MISS");
 
-    // ── Step 2: Get user profile ──────────────────────────────────────
+    //get user profile with fallback to empty if Redis fails, ensuring ad serving can proceed even under cache issues
     let userProfile;
     try {
       userProfile = await getUserProfile(safeCustomerId);
-      log.push(`profile_impressions=${userProfile.impressions.length}`);
-    } catch {
+      console.log(`profile_impressions=${userProfile.impressions.length}`);
+    } catch (err) {
       // Fallback: empty profile if Redis fails
-      userProfile = { customerId: safeCustomerId, impressions: [], lastUpdated: Date.now() };
-      log.push("profile=FALLBACK");
+      userProfile = {
+        customerId: safeCustomerId,
+        impressions: [],
+        lastUpdated: Date.now(),
+      };
+      console.log("profile=FALLBACK");
     }
 
-    // ── Step 3: Query eligible ads from DB ────────────────────────────
+    //query DB for eligible ads with strict timeouts and sorting by priority, ensuring we get the most relevant ads while preventing long waits under load
     const now = new Date();
     const eligibleAds = (await Ads.find({
       segments: segment,
@@ -82,10 +102,12 @@ export const serveAds = async (c: any) => {
       .maxTimeMS(2000)
       .lean()) as unknown as AdDocument[];
 
-    log.push(`db_matches=${eligibleAds.length}`);
+    console.log(`db_matches=${eligibleAds.length}`);
 
     if (eligibleAds.length === 0) {
-      console.log(`[serveAds] ${log.join(" | ")} | NO_ADS | ${Date.now() - startTime}ms`);
+      console.log(
+        `[serveAds] ${log.join(" | ")} | NO_ADS | ${Date.now() - startTime}ms`,
+      );
       return c.json({ message: "No ad available" }, 404);
     }
 
@@ -93,14 +115,14 @@ export const serveAds = async (c: any) => {
     const timeSlotResult = filterByTimeSlot(eligibleAds);
     let candidates = timeSlotResult.eligible;
     if (timeSlotResult.excluded.length > 0) {
-      log.push(`timeslot_filtered=${timeSlotResult.excluded.length}`);
+      console.log(`timeslot_filtered=${timeSlotResult.excluded.length}`);
     }
 
     // ── Step 5: Filter by frequency cap ───────────────────────────────
     const freqResult = filterByFrequencyCap(candidates, userProfile);
     candidates = freqResult.eligible;
     if (freqResult.excluded.length > 0) {
-      log.push(`freq_filtered=${freqResult.excluded.length}`);
+      console.log(`freq_filtered=${freqResult.excluded.length}`);
     }
 
     if (candidates.length === 0) {
@@ -143,7 +165,8 @@ export const serveAds = async (c: any) => {
     // ── Step 8: Cache with smart TTL ──────────────────────────────────
     if (isRedisAvailable()) {
       const ttl =
-        candidates.length <= TARGETING_CONFIG.cache.adThresholdForLowAvailability
+        candidates.length <=
+        TARGETING_CONFIG.cache.adThresholdForLowAvailability
           ? TARGETING_CONFIG.cache.highAvailabilityTtl
           : TARGETING_CONFIG.cache.lowAvailabilityTtl;
 
@@ -158,7 +181,9 @@ export const serveAds = async (c: any) => {
     return c.json(response);
   } catch (error) {
     console.error("[serveAds] Fatal error:", error);
-    console.log(`[serveAds] ${log.join(" | ")} | ERROR | ${Date.now() - startTime}ms`);
+    console.log(
+      `[serveAds] ${log.join(" | ")} | ERROR | ${Date.now() - startTime}ms`,
+    );
 
     // ── Fallback: Basic serving without targeting ─────────────────────
     try {
@@ -171,7 +196,9 @@ export const serveAds = async (c: any) => {
         status: "active",
         startDate: { $lte: new Date() },
         endDate: { $gte: new Date() },
-      }).sort({ priority: -1 }).maxTimeMS(2000);
+      })
+        .sort({ priority: -1 })
+        .maxTimeMS(2000);
 
       if (ad) {
         return c.json({
@@ -281,7 +308,9 @@ export const trackClick = async (c: any) => {
  * Runs as fire-and-forget from createAd.
  */
 async function invalidateCacheForAd(body: any): Promise<void> {
-  const segments = Array.isArray(body.segments) ? body.segments : [body.segments];
+  const segments = Array.isArray(body.segments)
+    ? body.segments
+    : [body.segments];
   const channels = Array.isArray(body.channels) ? body.channels : ["ATM"];
   const keys: string[] = [];
   const MAX_SCAN_ITERATIONS = 50;
@@ -294,7 +323,9 @@ async function invalidateCacheForAd(body: any): Promise<void> {
 
       do {
         if (++iterations > MAX_SCAN_ITERATIONS) {
-          console.warn(`[createAd] SCAN hit iteration cap (${MAX_SCAN_ITERATIONS}) for pattern: ${pattern}`);
+          console.warn(
+            `[createAd] SCAN hit iteration cap (${MAX_SCAN_ITERATIONS}) for pattern: ${pattern}`,
+          );
           break;
         }
 
@@ -303,7 +334,10 @@ async function invalidateCacheForAd(body: any): Promise<void> {
           setTimeout(() => reject(new Error("SCAN timeout")), 500),
         );
 
-        const [nextCursor, matchedKeys] = await Promise.race([scanPromise, timeoutPromise]);
+        const [nextCursor, matchedKeys] = await Promise.race([
+          scanPromise,
+          timeoutPromise,
+        ]);
         cursor = nextCursor;
         if (matchedKeys.length > 0) {
           keys.push(...matchedKeys);
