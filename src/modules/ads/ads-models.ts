@@ -41,6 +41,12 @@ const adsSchema = new Schema(
       type: [String], // e.g. ["Lagos", "Port Harcourt"]
     },
 
+    // Time-of-day targeting (empty = all day)
+    timeSlots: {
+      type: [String],
+      enum: ["morning", "afternoon", "evening", "night"],
+    },
+
     // Ad scheduling
     startDate: {
       type: Date,

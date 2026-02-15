@@ -1,13 +1,20 @@
 import { Hono } from "hono";
-import { createAd, serveAds, trackImpression } from "./ads-controllers";
-// import { authenticate } from "../../common/middleware/auth-middleware";
+import { createAd, serveAds, trackImpression, trackClick } from "./ads-controllers";
 import { apiKeyAuth } from "../../common/middleware/apikey-auth";
+import { rateLimiter } from "../../common/middleware/rate-limiter";
 
 const adsRoutes = new Hono();
 
-// POST /ads/serve
-adsRoutes.post("/serve", serveAds);
+// POST /ads/serve — rate limited, public
+adsRoutes.post("/serve", rateLimiter, serveAds);
+
+// POST /ads/create — API key protected
 adsRoutes.post("/create", apiKeyAuth, createAd);
+
+// POST /ads/impression — API key protected
 adsRoutes.post("/impression", apiKeyAuth, trackImpression);
+
+// POST /ads/click — API key protected
+adsRoutes.post("/click", apiKeyAuth, trackClick);
 
 export default adsRoutes;
