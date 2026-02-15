@@ -46,7 +46,7 @@ export const rateLimiter = async (c: Context, next: Next) => {
     // ── Layer 2: Per-API-key rate limit (if present) ──────────────────
     const apiKey = c.req.header("x-api-key");
     if (apiKey) {
-      const bank = c.get("bank") as any;
+      const bank = c.get("bank") as { rateLimitTier?: RateLimitTier };
       const tier: RateLimitTier = bank?.rateLimitTier || "standard";
       const tierConfig = RATE_LIMIT_TIERS[tier];
 
