@@ -227,8 +227,8 @@ export const scoreAds = (ads: AdDocument[]): ScoredAd[] => {
 
   const weights = TARGETING_CONFIG.scoreWeights;
 
-  // Find max values for normalization
-  const maxPriority = Math.max(...ads.map((a) => a.priority || 1));
+  // Find max values for normalization (guard against 0 to prevent NaN)
+  const maxPriority = Math.max(...ads.map((a) => a.priority || 1), 1);
   const maxImpressions = Math.max(...ads.map((a) => a.impressions || 0), 1);
   const now = Date.now();
 

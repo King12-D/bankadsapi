@@ -274,26 +274,36 @@ export const trackClick = async (c: any) => {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Async cache invalidation using SCAN (non-blocking).
- * Runs as fire-and-forget from createAd so the response isn't delayed.
+ * Async cache invalidation using SCAN with safety guardrails.
+ * - Small COUNT (20) to minimize per-call blocking
+ * - Max 50 iterations to prevent infinite loops under load
+ * - Per-call timeout to prevent hanging
+ * Runs as fire-and-forget from createAd.
  */
 async function invalidateCacheForAd(body: any): Promise<void> {
   const segments = Array.isArray(body.segments) ? body.segments : [body.segments];
   const channels = Array.isArray(body.channels) ? body.channels : ["ATM"];
   const keys: string[] = [];
+  const MAX_SCAN_ITERATIONS = 50;
 
   for (const seg of segments) {
     for (const ch of channels) {
       const pattern = `ad:${seg}:${ch}:*`;
       let cursor = "0";
+      let iterations = 0;
+
       do {
-        const [nextCursor, matchedKeys] = await redis.scan(
-          cursor,
-          "MATCH",
-          pattern,
-          "COUNT",
-          100,
+        if (++iterations > MAX_SCAN_ITERATIONS) {
+          console.warn(`[createAd] SCAN hit iteration cap (${MAX_SCAN_ITERATIONS}) for pattern: ${pattern}`);
+          break;
+        }
+
+        const scanPromise = redis.scan(cursor, "MATCH", pattern, "COUNT", 20);
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("SCAN timeout")), 500),
         );
+
+        const [nextCursor, matchedKeys] = await Promise.race([scanPromise, timeoutPromise]);
         cursor = nextCursor;
         if (matchedKeys.length > 0) {
           keys.push(...matchedKeys);
