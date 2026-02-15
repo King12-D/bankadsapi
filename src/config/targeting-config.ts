@@ -1,24 +1,22 @@
-/**
- * Targeting Engine Configuration
- * All targeting parameters are centralized here for easy tuning.
- */
+//Targeting Engine Configuration
+//All targeting parameters are centralized here for easy tuning.
 
 export const TARGETING_CONFIG = {
-  /** Frequency capping */
+  // Frequency capping
   frequencyCap: {
     maxImpressionsPerDay: 3,
     cooldownHours: 2,
   },
 
-  /** Composite scoring weights (must sum to 1.0) */
+  // Composite scoring weights (must sum to 1.0)
   scoreWeights: {
     priority: 0.35,
     ctr: 0.25,
-    recency: 0.20,
-    freshness: 0.20,
+    recency: 0.2,
+    freshness: 0.2,
   },
 
-  /** CTR calculation */
+  // CTR calculation parameters
   ctr: {
     minimumImpressions: 10,
     defaultCtr: 0.02,
@@ -56,7 +54,7 @@ export const TARGETING_CONFIG = {
 
   /** Scoring config */
   score: {
-     recencyMaxAgeDays: 30,
+    recencyMaxAgeDays: 30,
   },
 
   /** User profile TTL in Redis (seconds) */
