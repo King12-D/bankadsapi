@@ -6,7 +6,7 @@ import { TARGETING_CONFIG } from "../../config/targeting-config";
  * Uses sorted sets with timestamps for precise sliding windows.
  * Falls back to allowing requests if Redis is unavailable.
  */
-export const rateLimiter = async (c: any, next: any) => {
+export const rateLimiter = async (c: Context, next: Next) => {
   const { windowSeconds, maxRequests } = TARGETING_CONFIG.rateLimit;
 
   try {
