@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+  pull_request:
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    env:
+      PORT: 3000
+      MONGODB_URI: mongodb://localhost:27017/bankadsapi
+      JWT_SECRET: 123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+      INTERSWITCH_MODE: TEST
+      INTERSWITCH_MERCHANT_CODE: demo_merchant_code
+      INTERSWITCH_PAY_ITEM_ID: demo_pay_item
+      INTERSWITCH_SITE_REDIRECT_URL: https://example.com/payment-response
+      INTERSWITCH_TRANSACTION_BASE_URL: https://qa.interswitchng.com
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate environment loading
+        run: bun --eval "await import('./src/config/config.ts')"
+
+      - name: Build Docker image
+        run: docker build -t bankadsapi:ci .

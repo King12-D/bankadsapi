@@ -2,7 +2,8 @@
   "name": "bankadsapi",
   "license": "Apache-2.0",
   "scripts": {
-    "dev": "bun run --hot src/index.ts"
+    "dev": "bun run --hot src/index.ts",
+    "start": "bun run src/index.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

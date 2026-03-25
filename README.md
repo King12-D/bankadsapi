@@ -45,6 +45,37 @@ bun run dev
 
 Server starts on `http://127.0.0.1:3000` (or your configured `PORT`).
 
+## Docker
+
+Build and run with Docker:
+
+```sh
+docker build -t bankadsapi .
+docker run --env-file .env -p 3000:3000 bankadsapi
+```
+
+Run the full local stack with Docker Compose:
+
+```sh
+docker compose up --build
+```
+
+This starts:
+
+- `app` on `http://127.0.0.1:3000`
+- `mongo` on `127.0.0.1:27017`
+- `redis` on `127.0.0.1:6379`
+
+When using Docker Compose, the app is configured to connect to the bundled MongoDB and Redis services automatically.
+
+## GitHub Actions
+
+CI is configured in `.github/workflows/ci.yml` to:
+
+- install dependencies with Bun
+- validate environment config loading
+- build the Docker image on every push and pull request
+
 ## API Docs (Swagger)
 
 - Swagger UI: `GET /api/v1/docs`

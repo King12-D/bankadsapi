@@ -1,0 +1,42 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bankadsapi-app
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      MONGODB_URI: mongodb://mongo:27017/bankadsapi
+      JWT_SECRET: replace_with_a_long_secure_secret_for_local_dev
+      INTERSWITCH_MODE: TEST
+      INTERSWITCH_MERCHANT_CODE: ${INTERSWITCH_MERCHANT_CODE:-}
+      INTERSWITCH_PAY_ITEM_ID: ${INTERSWITCH_PAY_ITEM_ID:-}
+      INTERSWITCH_SITE_REDIRECT_URL: ${INTERSWITCH_SITE_REDIRECT_URL:-http://localhost:3000/payment-response}
+      INTERSWITCH_TRANSACTION_BASE_URL: ${INTERSWITCH_TRANSACTION_BASE_URL:-https://qa.interswitchng.com}
+    depends_on:
+      mongo:
+        condition: service_started
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    container_name: bankadsapi-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: bankadsapi-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
