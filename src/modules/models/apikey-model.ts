@@ -21,6 +21,12 @@ const apiKeySchema = new Schema({
     unique: true,
   },
 
+  contactEmail: {
+    type: String,
+    lowercase: true,
+    trim: true,
+  },
+
   status: {
     type: String,
     enum: ["active", "inactive"],
@@ -32,6 +38,44 @@ const apiKeySchema = new Schema({
     type: String,
     enum: ["standard", "premium", "enterprise"],
     default: "standard",
+  },
+
+  plan: {
+    type: String,
+    enum: ["basic", "pro", "enterprise"],
+    default: "basic",
+  },
+
+  billingCycle: {
+    type: String,
+    enum: ["monthly", "annual"],
+    default: "monthly",
+  },
+
+  subscriptionStatus: {
+    type: String,
+    enum: ["pending", "active", "expired", "past_due"],
+    default: "pending",
+  },
+
+  subscriptionStartDate: {
+    type: Date,
+  },
+
+  subscriptionEndDate: {
+    type: Date,
+  },
+
+  lastPaymentReference: {
+    type: String,
+  },
+
+  lastPaymentAmount: {
+    type: Number,
+  },
+
+  lastVerifiedAt: {
+    type: Date,
   },
 
   createdAt: {

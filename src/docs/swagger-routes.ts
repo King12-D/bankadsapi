@@ -16,7 +16,12 @@ const openApiSpec = {
       description: "Current server",
     },
   ],
-  tags: [{ name: "Health" }, { name: "Ads" }, { name: "Analytics" }],
+  tags: [
+    { name: "Health" },
+    { name: "Billing" },
+    { name: "Ads" },
+    { name: "Analytics" },
+  ],
   components: {
     securitySchemes: {
       apiKeyAuth: {
@@ -38,6 +43,121 @@ const openApiSpec = {
           message: { type: "string", example: "API is healthy" },
           database: { type: "string", example: "connected" },
           timestamp: { type: "string", format: "date-time" },
+        },
+      },
+      BillingPlan: {
+        type: "object",
+        properties: {
+          code: {
+            type: "string",
+            enum: ["basic", "pro", "enterprise"],
+            example: "pro",
+          },
+          label: { type: "string", example: "Pro" },
+          description: {
+            type: "string",
+            example: "Growth plan for banks running multiple targeted campaigns.",
+          },
+          features: {
+            type: "array",
+            items: { type: "string" },
+          },
+          monthly: {
+            type: "object",
+            properties: {
+              amount: { type: "number", example: 750000 },
+              currency: { type: "string", example: "NGN" },
+              displayAmount: { type: "string", example: "NGN 7,500" },
+            },
+          },
+          annual: {
+            type: "object",
+            properties: {
+              amount: { type: "number", example: 7500000 },
+              currency: { type: "string", example: "NGN" },
+              displayAmount: { type: "string", example: "NGN 75,000" },
+            },
+          },
+        },
+      },
+      BillingInitiateRequest: {
+        type: "object",
+        required: ["bankName", "contactEmail", "plan", "billingCycle"],
+        properties: {
+          bankName: { type: "string", example: "Demo Bank" },
+          contactEmail: { type: "string", example: "team@demobank.com" },
+          plan: {
+            type: "string",
+            enum: ["basic", "pro", "enterprise"],
+            example: "basic",
+          },
+          billingCycle: {
+            type: "string",
+            enum: ["monthly", "annual"],
+            example: "monthly",
+          },
+        },
+      },
+      BillingInitiateResponse: {
+        type: "object",
+        properties: {
+          message: {
+            type: "string",
+            example: "Interswitch checkout initialized",
+          },
+          apiKey: { type: "string" },
+          subscription: {
+            type: "object",
+            properties: {
+              bankName: { type: "string" },
+              contactEmail: { type: "string" },
+              plan: { type: "string", example: "pro" },
+              billingCycle: { type: "string", example: "annual" },
+              amount: { type: "number", example: 7500000 },
+            },
+          },
+          checkout: {
+            type: "object",
+            properties: {
+              method: { type: "string", example: "POST" },
+              checkoutUrl: {
+                type: "string",
+                example:
+                  "https://newwebpay.qa.interswitchng.com/collections/w/pay",
+              },
+              inlineScriptUrl: {
+                type: "string",
+                example:
+                  "https://newwebpay.qa.interswitchng.com/inline-checkout.js",
+              },
+              paymentRequest: {
+                type: "object",
+                description:
+                  "Use this object directly with the Interswitch inline checkout or redirect form.",
+              },
+            },
+          },
+        },
+      },
+      BillingVerifyResponse: {
+        type: "object",
+        properties: {
+          message: { type: "string", example: "Subscription activated" },
+          status: { type: "string", example: "active" },
+          apiKey: { type: "string" },
+          subscription: {
+            type: "object",
+            properties: {
+              plan: { type: "string", example: "enterprise" },
+              billingCycle: { type: "string", example: "annual" },
+              startDate: { type: "string", format: "date-time" },
+              endDate: { type: "string", format: "date-time" },
+            },
+          },
+          verification: {
+            type: "object",
+            description: "Raw Interswitch transaction verification response.",
+          },
         },
       },
       ServeAdRequest: {
@@ -209,6 +329,137 @@ const openApiSpec = {
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/HealthResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/v1/billing/plans": {
+      get: {
+        tags: ["Billing"],
+        summary: "Get tiered subscription plans",
+        description:
+          "Returns the Basic, Pro, and Enterprise plans with monthly and annual pricing for the frontend pricing page.",
+        responses: {
+          "200": {
+            description: "Available subscription plans",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    billingCycles: {
+                      type: "array",
+                      items: { type: "string", enum: ["monthly", "annual"] },
+                    },
+                    interswitch: {
+                      type: "object",
+                      properties: {
+                        mode: { type: "string", enum: ["TEST", "LIVE"] },
+                      },
+                    },
+                    plans: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/BillingPlan" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/v1/billing/checkout/initiate": {
+      post: {
+        tags: ["Billing"],
+        summary: "Initialize Interswitch checkout for a subscription",
+        description:
+          "Creates a pending subscription record and returns the payment payload the frontend can send to Interswitch inline or redirect checkout.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/BillingInitiateRequest" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Checkout initialized",
+            content: {
+              "application/json": {
+                schema: {
+                  $ref: "#/components/schemas/BillingInitiateResponse",
+                },
+              },
+            },
+          },
+          "400": {
+            description: "Validation error",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+          "500": {
+            description: "Server error",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/v1/billing/checkout/verify": {
+      get: {
+        tags: ["Billing"],
+        summary: "Verify an Interswitch subscription payment",
+        description:
+          "Requeries Interswitch with the transaction reference and activates the subscription after a successful payment confirmation.",
+        parameters: [
+          {
+            name: "transactionReference",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+            description: "The `txn_ref` sent to Interswitch during checkout.",
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Verification result",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/BillingVerifyResponse" },
+              },
+            },
+          },
+          "400": {
+            description: "Missing transaction reference",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+          "404": {
+            description: "Pending payment not found",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+          "500": {
+            description: "Verification failed",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
               },
             },
           },

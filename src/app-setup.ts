@@ -3,6 +3,7 @@ import { connectDB } from "./utils/db";
 import mongoose from "mongoose";
 import adsRoutes from "./modules/ads/ads-routes";
 import swaggerRoutes from "./docs/swagger-routes";
+import billingRoutes from "./modules/billing/billing-routes";
 
 const buildServer = async () => {
   const app = new Hono();
@@ -24,6 +25,7 @@ const buildServer = async () => {
 
     //Ads routes
     app.route("/api/v1/ads", adsRoutes);
+    app.route("/api/v1/billing", billingRoutes);
     app.route("/api/v1", swaggerRoutes);
     app.get("/api/v1", (c) => c.redirect("/api/v1/docs"));
   } catch (error: any) {

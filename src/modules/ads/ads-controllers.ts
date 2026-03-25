@@ -55,7 +55,7 @@ export const serveAds = async (c: any) => {
     const currentSlot = getCurrentTimeSlot();
     log.push(`segment=${segment} channel=${channel} slot=${currentSlot}`);
 
-    // ── Step 1: Check personalized cache ──────────────────────────────
+    // Check personalized cache
     const cacheKey = `ad:${segment}:${channel}:${safeCustomerId}`;
 
     if (isRedisAvailable()) {
@@ -111,14 +111,14 @@ export const serveAds = async (c: any) => {
       return c.json({ message: "No ad available" }, 404);
     }
 
-    // ── Step 4: Filter by time slot ───────────────────────────────────
+    // Filter by time slot
     const timeSlotResult = filterByTimeSlot(eligibleAds);
     let candidates = timeSlotResult.eligible;
     if (timeSlotResult.excluded.length > 0) {
       console.log(`timeslot_filtered=${timeSlotResult.excluded.length}`);
     }
 
-    // ── Step 5: Filter by frequency cap ───────────────────────────────
+    // Filter by frequency cap
     const freqResult = filterByFrequencyCap(candidates, userProfile);
     candidates = freqResult.eligible;
     if (freqResult.excluded.length > 0) {
@@ -134,7 +134,7 @@ export const serveAds = async (c: any) => {
       candidates = candidates.slice(0, 1);
     }
 
-    // ── Step 6: Score and rank ────────────────────────────────────────
+    // Score and rank
     const scored = scoreAds(candidates);
     scored.sort((a, b) => b.score - a.score);
 
@@ -157,12 +157,12 @@ export const serveAds = async (c: any) => {
       channel,
     };
 
-    // ── Step 7: Update user profile (non-blocking) ────────────────────
+    // Update user profile (non-blocking)
     recordImpression(safeCustomerId, winner.ad._id.toString()).catch((err) =>
       console.error("[serveAds] recordImpression error:", err),
     );
 
-    // ── Step 8: Cache with smart TTL ──────────────────────────────────
+    // Cache with smart TTL
     if (isRedisAvailable()) {
       const ttl =
         candidates.length <=
@@ -185,7 +185,7 @@ export const serveAds = async (c: any) => {
       `[serveAds] ${log.join(" | ")} | ERROR | ${Date.now() - startTime}ms`,
     );
 
-    // ── Fallback: Basic serving without targeting ─────────────────────
+    // Fallback: Basic serving without targeting
     try {
       const { balance = 0, channel = "ATM" } = body;
       const segment = getSegment(balance);

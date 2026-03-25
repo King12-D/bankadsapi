@@ -14,6 +14,23 @@ export const apiKeyAuth = async (c: any, next: any) => {
       return c.json({ error: "Invalid API key" }, 403);
     }
 
+    const subscriptionStatus = bank.subscriptionStatus ?? "pending";
+    const subscriptionEndDate = bank.subscriptionEndDate
+      ? new Date(bank.subscriptionEndDate)
+      : null;
+
+    if (
+      subscriptionStatus !== "active" ||
+      (subscriptionEndDate && subscriptionEndDate.getTime() < Date.now())
+    ) {
+      return c.json(
+        {
+          error: "Subscription inactive. Please complete or renew billing to continue.",
+        },
+        403,
+      );
+    }
+
     // Attach bank info to context for use in controllers
     c.set("bank", bank);
 

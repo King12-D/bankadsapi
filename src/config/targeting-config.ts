@@ -63,7 +63,7 @@ export const TARGETING_CONFIG = {
   },
 } as const;
 
-// ─── Runtime validation ──────────────────────────────────────────────────────
+// Runtime validation
 
 const weightSum = Object.values(TARGETING_CONFIG.scoreWeights).reduce(
   (sum, w) => sum + w,
