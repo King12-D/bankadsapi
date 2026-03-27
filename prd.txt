@@ -1,0 +1,33 @@
+Product Requirements Document (PRD)
+Product: Customer-Aware Advertising Platform (Bank Ads Engine)
+Company: Konined (KO9D) and wid ltd 
+Owner: King David Uchenna and ike wisdom
+Overview
+An intelligent ad delivery system for banks to display personalized advertisements across ATM,
+mobile, and web platforms using financial, behavioral, and interest-based targeting.
+Goals
+1 Deliver personalized ads in real time
+2 Improve engagement and conversion
+3 Provide analytics dashboard
+4 Enable campaign management
+Target Users
+1 Bank Admin
+2 Advertisers (future)
+3 End Users (ATM/mobile customers)
+Core Features
+1 Authentication system
+2 Ad creation and management
+3 Analytics dashboard
+4 Ad preview system
+5 API key management
+Monetization Strategy (Interswitch Integration)
+The platform will be monetized using a subscription-based API access model powered by
+Interswitch payment APIs.
+1 Tiered subscription plans (Basic, Pro, Enterprise)
+2 Monthly and annual billing via Interswitch
+3 Pay-per-impression model for high-volume clients
+4 API usage metering and billing
+5 Automated subscription renewal
+Banks will subscribe to access the API, with pricing based on request volume, number of ATMs,
+and analytics features.
+
