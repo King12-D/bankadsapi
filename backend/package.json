@@ -3,7 +3,11 @@
   "license": "Apache-2.0",
   "scripts": {
     "dev": "npx -y tsx watch src/index.ts",
-    "start": "npx -y tsx src/index.ts"
+    "start": "npx -y tsx src/index.ts",
+    "build": "tsc",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write .",
+    "migrate": "bun run prisma migrate deploy"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.11",
