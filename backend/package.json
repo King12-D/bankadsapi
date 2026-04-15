@@ -7,7 +7,7 @@
     "build": "tsc",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write .",
-    "migrate": "bun run prisma migrate deploy"
+    "migrate": "bun x -y tsx src/scripts/run-migrations.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.11",
