@@ -1,5 +1,11 @@
 import { Hono } from "hono";
-import { createAd, serveAds, trackImpression, trackClick, getCampaigns, getAnalytics } from "./ads-controllers";
+import {
+  createAd,
+  serveAds,
+  trackImpression,
+  getCampaigns,
+  getAnalytics,
+} from "./ads-controllers";
 import { apiKeyAuth } from "../../common/middleware/apikey-auth";
 import { rateLimiter } from "../../common/middleware/rate-limiter";
 
@@ -13,9 +19,6 @@ adsRoutes.post("/create", apiKeyAuth, createAd);
 
 // POST /ads/impression — API key protected + rate limited
 adsRoutes.post("/impression", apiKeyAuth, rateLimiter, trackImpression);
-
-// POST /ads/click — API key protected + rate limited
-adsRoutes.post("/click", apiKeyAuth, rateLimiter, trackClick);
 
 // GET /ads/campaigns
 adsRoutes.get("/campaigns", getCampaigns);
