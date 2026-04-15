@@ -13,9 +13,17 @@ import { cors } from "hono/cors";
 
 const buildServer = async () => {
   const app = new Hono();
-  
-  // Enable CORS
-  app.use("/*", cors());
+
+  // Enable CORS with options
+  app.use(
+    "/*",
+    cors({
+      origin: ["http://localhost:3000", "https://bakad.vercel.app"],
+      allowHeaders: ["Content-Type", "Authorization"],
+      allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      credentials: true, // Allow cookies/auth headers if needed
+    }),
+  );
 
   try {
     await connectDB();
@@ -29,7 +37,6 @@ const buildServer = async () => {
         timestamp: new Date().toISOString(),
       });
     });
-
 
     //Ads routes
     app.route("/api/v1/ads", adsRoutes);
