@@ -31,7 +31,7 @@ Interswitch payment APIs.
 Banks will subscribe to access the API, with pricing based on request volume, number of ATMs,
 and analytics features.
 Tech Stack
-1 Frontend:  Tailwind CSS, glassmophism port 3000
+1 Frontend:  Tailwind CSS, glassmophism, theme black and gold  port 3000
 2 Backend:  is already hosted on render via apidocs.txt but for user data use db.json and all other functions port 3030
 3 Database: postgres 
 4 Caching: Redis

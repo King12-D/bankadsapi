@@ -1,0 +1,128 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --color-gold-400: #F9E076;
+  --color-gold-500: #D4AF37;
+  --color-gold-600: #AA8B24;
+  --color-black-pure: #050505;
+  --color-black-card: rgba(18, 18, 18, 0.7);
+}
+
+:root {
+  --brand-gold: #D4AF37;
+  --brand-gold-light: #F9E076;
+  --brand-dark: #050505;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--brand-dark);
+  color: #f3f4f6;
+  overflow-x: hidden;
+  margin: 0;
+}
+
+/* Luxury Background Effects */
+.bg-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  z-index: -1;
+  opacity: 0.3;
+  animation: float 15s ease-in-out infinite alternate;
+}
+
+.blob-1 {
+  top: -10%;
+  left: -5%;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(212,175,55,0.3) 0%, rgba(5,5,5,0) 70%);
+}
+
+.blob-2 {
+  bottom: -10%;
+  right: -5%;
+  width: 700px;
+  height: 700px;
+  background: radial-gradient(circle, rgba(170,139,36,0.2) 0%, rgba(5,5,5,0) 70%);
+  animation-delay: -7s;
+}
+
+@keyframes float {
+  0% { transform: translateY(0px) translateX(0px); }
+  100% { transform: translateY(50px) translateX(50px); }
+}
+
+/* Glassmorphism Luxury Classes */
+.glass {
+  background: rgba(10, 10, 10, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(212, 175, 55, 0.15);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+}
+
+.glass-card {
+  background: rgba(20, 20, 20, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(212, 175, 55, 0.1);
+  box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.5);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 20px 40px -10px rgba(212, 175, 55, 0.15);
+  border-color: rgba(212, 175, 55, 0.4);
+}
+
+.glass-nav {
+  background: rgba(5, 5, 5, 0.8);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border-bottom: 1px solid rgba(212, 175, 55, 0.1);
+}
+
+/* Premium Inputs & Buttons */
+.glass-input {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #fff;
+  transition: all 0.3s ease;
+}
+
+.glass-input:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(212, 175, 55, 0.6);
+  box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.1);
+}
+
+.btn-gold {
+  background: linear-gradient(135deg, #D4AF37 0%, #AA8B24 100%);
+  color: #000;
+  font-weight: 700;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 14px 0 rgba(212, 175, 55, 0.3);
+}
+
+.btn-gold:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(212, 175, 55, 0.5);
+  background: linear-gradient(135deg, #F9E076 0%, #D4AF37 100%);
+}
+
+.text-gold-gradient {
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-image: linear-gradient(90deg, #F9E076, #D4AF37, #AA8B24);
+}
+
+.border-gold {
+  border-color: rgba(212, 175, 55, 0.3) !important;
+}

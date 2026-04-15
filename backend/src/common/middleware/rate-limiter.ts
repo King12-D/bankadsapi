@@ -1,16 +1,18 @@
 import { Context, Next } from "hono";
 import { redis, isRedisAvailable } from "../../config/redis";
 import { TARGETING_CONFIG } from "../../config/targeting-config";
-import { RATE_LIMIT_TIERS, type RateLimitTier } from "../../modules/models/apikey-model";
+
+/** Rate limit tiers moved from deleted model file */
+export const RATE_LIMIT_TIERS = {
+  standard: { maxRequests: 500, windowSeconds: 60 },
+  premium: { maxRequests: 1000, windowSeconds: 60 },
+  enterprise: { maxRequests: 5000, windowSeconds: 60 },
+} as const;
+
+export type RateLimitTier = keyof typeof RATE_LIMIT_TIERS;
 
 /**
  * Redis sliding-window rate limiter middleware.
- *
- * Dual-layer limiting:
- *   Layer 1 — Per-IP rate limit (public abuse prevention)
- *   Layer 2 — Per-API-key rate limit (bank tier-based, if x-api-key present)
- *
- * Falls back to allowing requests if Redis is unavailable.
  */
 export const rateLimiter = async (c: Context, next: Next) => {
   if (!isRedisAvailable()) {
@@ -26,14 +28,10 @@ export const rateLimiter = async (c: Context, next: Next) => {
       c.req.header("x-real-ip") ||
       "unknown";
 
-    // ── Layer 1: Per-IP rate limit ────────────────────────────────────
     const ipKey = `ratelimit:ip:${ip}:${c.req.path}`;
     const ipResult = await checkRateLimit(ipKey, windowSeconds, maxRequests);
 
     if (ipResult.exceeded) {
-      console.warn(
-        `[rate-limit] IP ${ip} exceeded limit (${ipResult.count}/${maxRequests}) on ${c.req.path}`,
-      );
       c.header("Retry-After", String(windowSeconds));
       c.header("X-RateLimit-Limit", String(maxRequests));
       c.header("X-RateLimit-Remaining", "0");
@@ -43,14 +41,13 @@ export const rateLimiter = async (c: Context, next: Next) => {
       );
     }
 
-    // ── Layer 2: Per-API-key rate limit (if present) ──────────────────
     const apiKey = c.req.header("x-api-key");
     if (apiKey) {
       const bank = c.get("bank") as { rateLimitTier?: RateLimitTier };
       const tier: RateLimitTier = bank?.rateLimitTier || "standard";
       const tierConfig = RATE_LIMIT_TIERS[tier];
 
-      const apiKeyHash = apiKey.slice(-8); // last 8 chars for key privacy
+      const apiKeyHash = apiKey.slice(-8);
       const apiKeyKey = `ratelimit:apikey:${apiKeyHash}:${c.req.path}`;
       const apiKeyResult = await checkRateLimit(
         apiKeyKey,
@@ -59,10 +56,6 @@ export const rateLimiter = async (c: Context, next: Next) => {
       );
 
       if (apiKeyResult.exceeded) {
-        console.warn(
-          `[rate-limit] API key ...${apiKeyHash} (tier:${tier}) exceeded limit ` +
-            `(${apiKeyResult.count}/${tierConfig.maxRequests}) on ${c.req.path}`,
-        );
         c.header("Retry-After", String(tierConfig.windowSeconds));
         c.header("X-RateLimit-Limit", String(tierConfig.maxRequests));
         c.header("X-RateLimit-Remaining", "0");
@@ -82,7 +75,6 @@ export const rateLimiter = async (c: Context, next: Next) => {
         String(tierConfig.maxRequests - apiKeyResult.count),
       );
     } else {
-      // No API key — use IP-based headers
       c.header("X-RateLimit-Limit", String(maxRequests));
       c.header(
         "X-RateLimit-Remaining",
@@ -92,18 +84,11 @@ export const rateLimiter = async (c: Context, next: Next) => {
 
     await next();
   } catch (error) {
-    // Fail open — allow request if Redis is down
     console.warn("[rate-limiter] Redis error, allowing request:", error);
     await next();
   }
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * Atomic sliding-window check using Redis sorted set + pipeline.
- * Returns whether the limit was exceeded and the current count.
- */
 async function checkRateLimit(
   key: string,
   windowSeconds: number,
@@ -119,13 +104,10 @@ async function checkRateLimit(
   pipeline.expire(key, windowSeconds);
 
   const results = await pipeline.exec();
-
-  // Check for pipeline errors — fail open if any command errored
   if (!results || results[2]?.[0]) {
     return { exceeded: false, count: 0 };
   }
 
   const count = (results[2][1] as number) ?? 0;
-
   return { exceeded: count > maxRequests, count };
 }

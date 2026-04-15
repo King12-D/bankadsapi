@@ -1,5 +1,5 @@
 import { Context } from "hono";
-import { User } from "../models/user-model";
+import { query } from "../../utils/db";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
@@ -10,30 +10,36 @@ export const register = async (c: Context) => {
     const body = await c.req.json();
     const { name, email, password, plan } = body;
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
+    const existingUser = await query("SELECT id FROM users WHERE email = $1", [email]);
+    if (existingUser.rows.length > 0) {
       return c.json({ error: "Email already exists" }, 400);
     }
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const newUser = new User({
-      name,
-      email,
-      password: hashedPassword,
-      plan: plan || "basic",
-      role: email === "ikewisdom92@gmail.com" ? "admin" : "user",
-    });
+    const role = email === "ikewisdom92@gmail.com" ? "admin" : "user";
+    const userPlan = plan || "basic";
 
-    await newUser.save();
+    const insertResult = await query(
+      "INSERT INTO users (name, email, password, role, plan) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+      [name, email, hashedPassword, role, userPlan]
+    );
 
-    const token = jwt.sign({ id: newUser._id, role: newUser.role }, JWT_SECRET, { expiresIn: "1d" });
+    const newUser = insertResult.rows[0];
+    const token = jwt.sign({ id: newUser.id, role: newUser.role }, JWT_SECRET, { expiresIn: "1d" });
 
     return c.json({
       message: "User created successfully",
       token,
-      user: { id: newUser._id, name: newUser.name, email: newUser.email, role: newUser.role, plan: newUser.plan }
+      user: { 
+        id: newUser.id, 
+        _id: newUser.id, // Alias for frontend compatibility 
+        name: newUser.name, 
+        email: newUser.email, 
+        role: newUser.role, 
+        plan: newUser.plan 
+      }
     }, 201);
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
@@ -46,36 +52,47 @@ export const login = async (c: Context) => {
 
     // Implicit admin seeder check
     if (email === "ikewisdom92@gmail.com" && password === "admin") {
-      let adminUser = await User.findOne({ email: "ikewisdom92@gmail.com" });
-      if (!adminUser) {
+      const existingAdmin = await query("SELECT id FROM users WHERE email = $1", [email]);
+      if (existingAdmin.rows.length === 0) {
         const salt = await bcrypt.genSalt(10);
-        adminUser = new User({
-          name: "Ike Wisdom (Admin)",
-          email: "ikewisdom92@gmail.com",
-          password: await bcrypt.hash("admin", salt),
-          role: "admin",
-          plan: "enterprise"
-        });
-        await adminUser.save();
+        const hashedPassword = await bcrypt.hash("admin", salt);
+        await query(
+          "INSERT INTO users (name, email, password, role, plan) VALUES ($1, $2, $3, $4, $5)",
+          ["Ike Wisdom (Admin)", "ikewisdom92@gmail.com", hashedPassword, "admin", "enterprise"]
+        );
+      } else {
+          // Ensure password is 'admin' even if user existed with different password
+          const salt = await bcrypt.genSalt(10);
+          const hashedPassword = await bcrypt.hash("admin", salt);
+          await query("UPDATE users SET password = $1, role = 'admin' WHERE email = $2", [hashedPassword, email]);
       }
     }
 
-    const user = await User.findOne({ email });
-    if (!user) {
+
+    const userResult = await query("SELECT * FROM users WHERE email = $1", [email]);
+    if (userResult.rows.length === 0) {
       return c.json({ error: "Invalid credentials" }, 400);
     }
 
+    const user = userResult.rows[0];
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return c.json({ error: "Invalid credentials" }, 400);
     }
 
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: "1d" });
+    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: "1d" });
 
     return c.json({
       message: "Login successful",
       token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role, plan: user.plan }
+      user: { 
+        id: user.id, 
+        _id: user.id, // Alias for frontend compatibility
+        name: user.name, 
+        email: user.email, 
+        role: user.role, 
+        plan: user.plan 
+      }
     });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
@@ -90,10 +107,14 @@ export const getMe = async (c: Context) => {
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, JWT_SECRET) as { id: string, role: string };
     
-    const user = await User.findById(decoded.id).select("-password");
-    if (!user) return c.json({ error: "User not found" }, 404);
+    const userResult = await query("SELECT id, name, email, role, plan, created_at FROM users WHERE id = $1", [decoded.id]);
+    if (userResult.rows.length === 0) return c.json({ error: "User not found" }, 404);
 
-    return c.json(user);
+    const user = userResult.rows[0];
+    return c.json({
+        ...user,
+        _id: user.id // Compatibility
+    });
   } catch (error: any) {
     return c.json({ error: "Invalid token" }, 401);
   }

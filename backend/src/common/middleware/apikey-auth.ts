@@ -1,4 +1,4 @@
-import { ApiKey } from "../../modules/models/apikey-model";
+import { query } from "../../utils/db";
 
 export const apiKeyAuth = async (c: any, next: any) => {
   try {
@@ -8,15 +8,16 @@ export const apiKeyAuth = async (c: any, next: any) => {
       return c.json({ error: "API key required" }, 401);
     }
 
-    const bank = await ApiKey.findOne({ apiKey, status: "active" });
+    const res = await query("SELECT * FROM bank_api_keys WHERE api_key = $1 AND status = 'active'", [apiKey]);
+    const bank = res.rows[0];
 
     if (!bank) {
       return c.json({ error: "Invalid API key" }, 403);
     }
 
-    const subscriptionStatus = bank.subscriptionStatus ?? "pending";
-    const subscriptionEndDate = bank.subscriptionEndDate
-      ? new Date(bank.subscriptionEndDate)
+    const subscriptionStatus = bank.subscription_status ?? "pending";
+    const subscriptionEndDate = bank.subscription_end_date
+      ? new Date(bank.subscription_end_date)
       : null;
 
     if (
@@ -32,7 +33,13 @@ export const apiKeyAuth = async (c: any, next: any) => {
     }
 
     // Attach bank info to context for use in controllers
-    c.set("bank", bank);
+    // Map snake_case to camelCase for potential internal usage consistency
+    c.set("bank", {
+        ...bank,
+        rateLimitTier: bank.rate_limit_tier,
+        subscriptionStatus: bank.subscription_status,
+        subscriptionEndDate: bank.subscription_end_date
+    });
 
     await next();
   } catch (err) {

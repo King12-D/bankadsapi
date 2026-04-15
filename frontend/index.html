@@ -1,103 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bank Ads Engine | Financial Precision</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/@phosphor-icons/web"></script>
-  <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="stylesheet" href="style.css">
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            brand: {
-              400: '#38bdf8',
-              500: '#0ea5e9',
-              600: '#0284c7',
-              dark: '#030712'
-            }
-          }
-        }
-      }
-    }
-  </script>
-</head>
-<body class="antialiased min-h-screen relative flex flex-col">
-  <!-- Aesthetic Blobs -->
-  <div class="bg-blob blob-1"></div>
-  <div class="bg-blob blob-2"></div>
-
-  <!-- Navigation -->
-  <nav class="glass-nav fixed w-full z-50">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex items-center justify-between h-20">
-        <div class="flex items-center gap-2">
-          <img src="assets/logo.png" alt="Bank Ads Engine Logo" class="h-10 w-10 object-contain rounded-full shadow-[0_0_15px_rgba(56,189,248,0.5)]">
-          <span class="text-2xl font-bold tracking-tight text-white">Bank<span class="text-brand-400">Ads</span></span>
-        </div>
-        <div class="hidden md:block">
-          <div class="ml-10 flex items-center space-x-8">
-            <a href="index.html" class="text-gray-300 hover:text-brand-400 transition-colors">Home</a>
-            <a href="pricing.html" class="text-gray-300 hover:text-brand-400 transition-colors">Pricing</a>
-            <a href="login.html" class="text-gray-300 hover:text-white transition-colors">Login</a>
-            <a href="register.html" class="px-6 py-2.5 rounded-full btn-primary font-medium">Get Started</a>
-          </div>
-        </div>
-      </div>
-    </div>
-  </nav>
-
-  <!-- Hero Section -->
-  <main class="flex-grow flex items-center justify-center pt-20 px-4 md:px-0">
-    <div class="max-w-5xl mx-auto text-center z-10 py-24">
-      <div class="inline-block mb-6 px-4 py-1.5 rounded-full glass border border-brand-400/30 text-brand-400 text-sm font-semibold tracking-wide">
-        INTELLIGENT AD DELIVERY
-      </div>
-      <h1 class="text-5xl md:text-7xl font-extrabold tracking-tight mb-8">
-        Unlock <span class="text-gradient">Financial Precision</span><br/> in Advertising
-      </h1>
-      <p class="mt-4 text-xl md:text-2xl text-gray-400 mb-10 max-w-3xl mx-auto font-light leading-relaxed">
-        Deliver personalized, targeted advertisements across ATM, mobile, and web channels using real-time behavioral insights and robust segmenting.
-      </p>
-      
-      <div class="flex flex-col sm:flex-row justify-center gap-4">
-        <a href="register.html" class="px-8 py-4 rounded-full btn-primary text-lg font-medium flex items-center justify-center gap-2">
-          Start Engine <i class="ph ph-rocket-launch text-xl"></i>
-        </a>
-        <a href="pricing.html" class="px-8 py-4 rounded-full glass text-white text-lg font-medium hover:bg-white/5 transition-colors flex items-center justify-center gap-2">
-          View Plans <i class="ph ph-arrow-right text-xl"></i>
-        </a>
-      </div>
-
-      <div class="mt-20 pt-10 border-t border-white/10 grid grid-cols-2 md:grid-cols-4 gap-8">
-        <div>
-          <h4 class="text-4xl font-bold text-white mb-2">99.9%</h4>
-          <p class="text-gray-400">Uptime SLA</p>
-        </div>
-        <div>
-          <h4 class="text-4xl font-bold text-white mb-2">&lt;50ms</h4>
-          <p class="text-gray-400">API Latency</p>
-        </div>
-        <div>
-          <h4 class="text-4xl font-bold text-white mb-2">Omni</h4>
-          <p class="text-gray-400">Channel Support</p>
-        </div>
-        <div>
-          <h4 class="text-4xl font-bold text-white mb-2">Real-time</h4>
-          <p class="text-gray-400">Analytics</p>
-        </div>
-      </div>
-    </div>
-  </main>
-
-  <footer class="border-t border-white/5 py-12 mt-auto">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-500">
-      <p>&copy; 2026 Bank Ads Engine. Powered by KO9D & WID Ltd.</p>
-    </div>
-  </footer>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bank Ads Engine | Financial Precision</title>
+  </head>
+  <body class="bg-brand-dark overflow-x-hidden">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>

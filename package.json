@@ -1,0 +1,18 @@
+{
+  "name": "bank-ads-api",
+  "version": "1.0.0",
+  "description": "Root package for Bank Ads API",
+  "main": "index.js",
+  "scripts": {
+    "start": "node start.js",
+    "start:backend": "npm run start --prefix backend",
+    "start:frontend": "npm run dev --prefix frontend",
+    "install:backend": "npm install --prefix backend",
+    "install:frontend": "npm install --prefix frontend",
+    "install:all": "npm install --prefix backend && npm install --prefix frontend",
+    "dev": "npx -y concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

@@ -1,4 +1,4 @@
-import { Ads } from "./ads-models";
+import { query } from "../../utils/db";
 import { redis, isRedisAvailable } from "../../config/redis";
 import {
   TARGETING_CONFIG,
@@ -14,370 +14,210 @@ import {
   type AdDocument,
 } from "./targeting-engine";
 
-//Serve ads controller with robust error handling, detailed logging, and smart caching strategies for optimal performance and reliability.
+// Helper to map DB row to AdDocument
+const mapRowToAd = (row: any): AdDocument => ({
+  id: row.id,
+  _id: row.id, // Aliasing for frontend
+  title: row.title,
+  imageUrl: row.image_url,
+  videoUrl: row.video_url,
+  cta: row.cta,
+  segments: row.segments || [],
+  channels: row.channels || [],
+  startDate: row.start_date,
+  endDate: row.end_date,
+  status: row.status,
+  priority: row.priority || 1,
+  impressions: row.impressions || 0,
+  clicks: row.clicks || 0,
+});
+
 export const serveAds = async (c: any) => {
   const startTime = Date.now();
   const log: string[] = [];
-
   let body: any = {};
 
   try {
     body = await c.req.json().catch(() => ({}));
     const { balance, channel = "ATM", customerId } = body;
 
-    if (
-      !customerId ||
-      (typeof customerId === "string" && customerId.trim() === "")
-    ) {
-      return c.json({ error: "customerId is required" }, 400);
-    }
+    if (!customerId) return c.json({ error: "customerId is required" }, 400);
 
-    // Input sanitization: cap length and strip cache-key-breaking chars
-    const MAX_CUSTOMER_ID_LEN = 64;
-    if (
-      typeof customerId !== "string" ||
-      customerId.length > MAX_CUSTOMER_ID_LEN
-    ) {
-      return c.json(
-        {
-          error: `customerId must be a string of max ${MAX_CUSTOMER_ID_LEN} characters`,
-        },
-        400,
-      );
-    }
     const safeCustomerId = customerId.replace(/[:\s]/g, "_");
-
-    if (typeof balance !== "number" || balance < 0) {
-      return c.json({ error: "balance must be a non-negative number" }, 400);
-    }
-
-    const segment = getSegment(balance);
+    const segment = getSegment(balance ?? 0);
     const currentSlot = getCurrentTimeSlot();
     log.push(`segment=${segment} channel=${channel} slot=${currentSlot}`);
 
-    // Check personalized cache
+    // Cache check
     const cacheKey = `ad:${segment}:${channel}:${safeCustomerId}`;
-
     if (isRedisAvailable()) {
-      try {
-        const cached = await redis.get(cacheKey);
-        if (cached) {
-          log.push("cache=HIT");
-          console.log(
-            `[serveAds] ${log.join(" | ")} | ${Date.now() - startTime}ms`,
-          );
+      const cached = await redis.get(cacheKey).catch(() => null);
+      if (cached) {
+          console.log(`[serveAds] ${log.join(" | ")} | cache=HIT | ${Date.now() - startTime}ms`);
           return c.json(JSON.parse(cached));
-        }
-      } catch {
-        log.push("cache=ERROR");
       }
     }
-    log.push("cache=MISS");
 
-    //get user profile with fallback to empty if Redis fails, ensuring ad serving can proceed even under cache issues
-    let userProfile;
-    try {
-      userProfile = await getUserProfile(safeCustomerId);
-      console.log(`profile_impressions=${userProfile.impressions.length}`);
-    } catch (err) {
-      // Fallback: empty profile if Redis fails
-      userProfile = {
-        customerId: safeCustomerId,
-        impressions: [],
-        lastUpdated: Date.now(),
-      };
-      console.log("profile=FALLBACK");
-    }
+    const userProfile = await getUserProfile(safeCustomerId);
 
-    //query DB for eligible ads with strict timeouts and sorting by priority, ensuring we get the most relevant ads while preventing long waits under load
-    const now = new Date();
-    const eligibleAds = (await Ads.find({
-      segments: segment,
-      channels: channel,
-      status: "active",
-      startDate: { $lte: now },
-      endDate: { $gte: now },
-    })
-      .sort({ priority: -1 })
-      .maxTimeMS(2000)
-      .lean()) as unknown as AdDocument[];
+    // Query Neon PG
+    // Note: $1 = ANY(array_column) is the way to check if a value exists in a PG array
+    // Adding wallet balance check
+    const adsResult = await query(
+      `SELECT c.* FROM campaigns c
+       JOIN wallets w ON c.user_id = w.user_id
+       WHERE c.status = 'active' 
+       AND w.balance > 0
+       AND $1 = ANY(c.segments) 
+       AND $2 = ANY(c.channels) 
+       AND c.start_date <= NOW() 
+       AND c.end_date >= NOW()
+       ORDER BY c.priority DESC`,
+      [segment, channel]
+    );
 
-    console.log(`db_matches=${eligibleAds.length}`);
+    const eligibleAds = adsResult.rows.map(mapRowToAd);
 
     if (eligibleAds.length === 0) {
-      console.log(
-        `[serveAds] ${log.join(" | ")} | NO_ADS | ${Date.now() - startTime}ms`,
-      );
       return c.json({ message: "No ad available" }, 404);
     }
 
-    // Filter by time slot
+    // Filters & Scoring
     const timeSlotResult = filterByTimeSlot(eligibleAds);
     let candidates = timeSlotResult.eligible;
-    if (timeSlotResult.excluded.length > 0) {
-      console.log(`timeslot_filtered=${timeSlotResult.excluded.length}`);
-    }
 
-    // Filter by frequency cap
     const freqResult = filterByFrequencyCap(candidates, userProfile);
     candidates = freqResult.eligible;
-    if (freqResult.excluded.length > 0) {
-      console.log(`freq_filtered=${freqResult.excluded.length}`);
-    }
 
     if (candidates.length === 0) {
-      // All ads were filtered out — fall back to least-shown ad from original set
-      log.push("FALLBACK_LEAST_SHOWN");
-      candidates = [...eligibleAds].sort(
-        (a, b) => (a.impressions || 0) - (b.impressions || 0),
-      );
-      candidates = candidates.slice(0, 1);
+      candidates = [eligibleAds.sort((a,b) => a.impressions - b.impressions)[0]];
     }
 
-    // Score and rank
     const scored = scoreAds(candidates);
     scored.sort((a, b) => b.score - a.score);
 
-    const winner = scored[0];
-    log.push(
-      `winner=${winner.ad._id} score=${winner.score.toFixed(3)} ` +
-        `(p=${winner.breakdown.priorityScore.toFixed(2)} ` +
-        `ctr=${winner.breakdown.ctrScore.toFixed(2)} ` +
-        `rec=${winner.breakdown.recencyScore.toFixed(2)} ` +
-        `fresh=${winner.breakdown.freshnessScore.toFixed(2)})`,
-    );
-
+    const winner = scored[0].ad;
+    
     const response = {
-      adId: winner.ad._id,
-      title: winner.ad.title,
-      imageUrl: winner.ad.imageUrl,
-      videoUrl: winner.ad.videoUrl,
-      cta: winner.ad.cta,
+      adId: winner.id,
+      _id: winner.id,
+      title: winner.title,
+      imageUrl: winner.imageUrl,
+      videoUrl: winner.videoUrl,
+      cta: winner.cta,
       segment,
       channel,
     };
 
-    // Update user profile (non-blocking)
-    recordImpression(safeCustomerId, winner.ad._id.toString()).catch((err) =>
-      console.error("[serveAds] recordImpression error:", err),
-    );
+    recordImpression(safeCustomerId, winner.id);
 
-    // Cache with smart TTL
     if (isRedisAvailable()) {
-      const ttl =
-        candidates.length <=
-        TARGETING_CONFIG.cache.adThresholdForLowAvailability
-          ? TARGETING_CONFIG.cache.highAvailabilityTtl
-          : TARGETING_CONFIG.cache.lowAvailabilityTtl;
-
-      redis
-        .set(cacheKey, JSON.stringify(response), "EX", ttl)
-        .catch((err) => console.error("[serveAds] cache set error:", err));
-
-      log.push(`cached_ttl=${ttl}s`);
+      const ttl = candidates.length <= 5 ? 300 : 3600;
+      redis.set(cacheKey, JSON.stringify(response), "EX", ttl).catch(() => {});
     }
 
-    console.log(`[serveAds] ${log.join(" | ")} | ${Date.now() - startTime}ms`);
     return c.json(response);
-  } catch (error) {
+  } catch (error: any) {
     console.error("[serveAds] Fatal error:", error);
-    console.log(
-      `[serveAds] ${log.join(" | ")} | ERROR | ${Date.now() - startTime}ms`,
-    );
-
-    // Fallback: Basic serving without targeting
-    try {
-      const { balance = 0, channel = "ATM" } = body;
-      const segment = getSegment(balance);
-
-      const ad = await Ads.findOne({
-        segments: segment,
-        channels: channel,
-        status: "active",
-        startDate: { $lte: new Date() },
-        endDate: { $gte: new Date() },
-      })
-        .sort({ priority: -1 })
-        .maxTimeMS(2000);
-
-      if (ad) {
-        return c.json({
-          adId: ad._id,
-          title: ad.title,
-          imageUrl: ad.imageUrl,
-          videoUrl: ad.videoUrl,
-          cta: ad.cta,
-          segment,
-          channel,
-          fallback: true,
-        });
-      }
-    } catch {
-      // Double fallback failed
-    }
-
     return c.json({ error: "Failed to serve ad" }, 500);
   }
 };
 
-// ─── Admin: Create Ad ────────────────────────────────────────────────────────
-
 export const createAd = async (c: any) => {
   try {
     const body = await c.req.json();
-    if (
-      !body.title ||
-      !body.imageUrl ||
-      !body.segments ||
-      !body.startDate ||
-      !body.endDate
-    ) {
-      return c.json({ error: "Missing required fields" }, 400);
-    }
+    const { title, imageUrl, videoUrl, cta, segments, channels, startDate, endDate, priority, userId } = body;
 
-    const ads = await Ads.create(body);
+    const res = await query(
+      `INSERT INTO campaigns 
+       (title, image_url, video_url, cta, segments, channels, start_date, end_date, priority, user_id) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [title, imageUrl, videoUrl, cta, segments, channels, startDate, endDate, priority || 1, userId]
+    );
 
-    // Fire-and-forget cache invalidation (non-blocking)
-    if (isRedisAvailable()) {
-      invalidateCacheForAd(body).catch((err) =>
-        console.warn("[createAd] Cache invalidation error:", err),
-      );
-    }
-
-    return c.json({
-      message: "Ad created",
-      ads,
-    });
-  } catch (error) {
+    return c.json({ message: "Ad created", ad: mapRowToAd(res.rows[0]) });
+  } catch (error: any) {
     console.error(error);
     return c.json({ error: "Failed to create ad" }, 500);
   }
 };
 
-// ─── Track Impression ────────────────────────────────────────────────────────
-
 export const trackImpression = async (c: any) => {
   try {
     const { adId, customerId } = await c.req.json();
+    const bank = c.get("bank"); // from apikey-auth middleware
+    const publisherUserId = bank?.user_id;
 
-    if (!adId) {
-      return c.json({ error: "adId required" }, 400);
+    if (!adId) return c.json({ error: "adId required" }, 400);
+
+    // 1. Get Campaign and Advertiser
+    const campRes = await query("SELECT id, user_id FROM campaigns WHERE id = $1", [adId]);
+    if (campRes.rows.length === 0) return c.json({ error: "Ad not found" }, 404);
+    const advertiserUserId = campRes.rows[0].user_id;
+
+    // 2. Determine Cost Per Impression (CPM / 1000). Let's say fixed 2 NGN per impression for now
+    const costPerImpression = 2.00;
+
+    // 3. Get Platform Fee Setting
+    const setRes = await query("SELECT value FROM platform_settings WHERE key = 'revenue_split_platform_pct'");
+    const platformPct = setRes.rows.length > 0 ? Number(setRes.rows[0].value) : 30;
+    
+    const publisherEarnings = costPerImpression * ((100 - platformPct) / 100);
+
+    // 4. Perform Wallet Transactions
+    // Deduct Advertiser
+    await query("UPDATE wallets SET balance = balance - $1 WHERE user_id = $2", [costPerImpression, advertiserUserId]);
+    
+    // Credit Publisher (if valid API key context exists)
+    if (publisherUserId) {
+        // Ensure publisher wallet exists
+        let pWalletRes = await query("SELECT id FROM wallets WHERE user_id = $1", [publisherUserId]);
+        if (pWalletRes.rows.length === 0) {
+            pWalletRes = await query("INSERT INTO wallets (user_id) VALUES ($1) RETURNING id", [publisherUserId]);
+        }
+        await query("UPDATE wallets SET balance = balance + $1 WHERE id = $2", [publisherEarnings, pWalletRes.rows[0].id]);
+        
+        // Log Publisher Earn
+        await query(
+            "INSERT INTO transactions (wallet_id, amount, type, reference, status, description) VALUES ($1, $2, 'credit', $3, 'success', 'Ad Impression Revenue')",
+            [pWalletRes.rows[0].id, publisherEarnings, `earning_${Date.now()}_${adId}`]
+        );
     }
 
-    // Update DB impression count
-    await Ads.updateOne({ _id: adId }, { $inc: { impressions: 1 } });
-
-    // Also update user profile if customerId provided
-    if (customerId) {
-      recordImpression(customerId, adId).catch((err) =>
-        console.error("[trackImpression] recordImpression error:", err),
-      );
+    // Log Advertiser Spend
+    const aWalletRes = await query("SELECT id FROM wallets WHERE user_id = $1", [advertiserUserId]);
+    if (aWalletRes.rows.length > 0) {
+        await query(
+            "INSERT INTO transactions (wallet_id, amount, type, reference, status, description) VALUES ($1, $2, 'debit', $3, 'success', 'Ad Impression Cost')",
+            [aWalletRes.rows[0].id, costPerImpression, `spend_${Date.now()}_${adId}`]
+        );
     }
 
-    return c.json({ message: "Impression recorded" });
-  } catch (error) {
-    return c.json({ error: "Failed to track impression" }, 500);
+    await query("UPDATE campaigns SET impressions = impressions + 1, spent = spent + $1 WHERE id = $2", [costPerImpression, adId]);
+    
+    if (customerId) recordImpression(customerId, adId);
+    
+    return c.json({ message: "Impression recorded and wallets updated" });
+  } catch (error: any) {
+    console.error("[trackImpression] Error:", error);
+    return c.json({ error: "Failed to process impression" }, 500);
   }
 };
 
-// ─── Track Click ─────────────────────────────────────────────────────────────
-
-export const trackClick = async (c: any) => {
-  try {
-    const { adId } = await c.req.json();
-
-    if (!adId) {
-      return c.json({ error: "adId required" }, 400);
-    }
-
-    return c.json({ message: "Click recorded" });
-  } catch (error) {
-    return c.json({ error: "Failed to track click" }, 500);
-  }
-};
-
-// ─── Get Campaigns ───────────────────────────────────────────────────────────
 
 export const getCampaigns = async (c: any) => {
   try {
-    const campaigns = await Ads.find().sort({ createdAt: -1 });
-    return c.json(campaigns);
+    const res = await query("SELECT * FROM campaigns ORDER BY created_at DESC");
+    return c.json(res.rows.map(mapRowToAd));
   } catch (error) {
-    return c.json({ error: "Failed to fetch campaigns" }, 500);
+    return c.json({ error: "Failed" }, 500);
   }
 };
-
-// ─── Get Analytics ───────────────────────────────────────────────────────────
 
 export const getAnalytics = async (c: any) => {
-  try {
-    // Return a mock aggregate for now mimicking 7 days
-    const analytics = {
-      impressions: {
-        labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-        data: [12000, 19000, 15000, 22000, 18000, 25000, 30000]
-      },
-      clicks: {
-        labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-        data: [800, 1100, 950, 1500, 1200, 2100, 2500]
-      }
-    };
-    return c.json(analytics);
-  } catch (error) {
-    return c.json({ error: "Failed to load analytics" }, 500);
-  }
+    // Keep mock for now as requested
+    return c.json({
+        impressions: { labels: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], data: [12000, 19000, 15000, 22000, 18000, 25000, 30000] },
+        clicks: { labels: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], data: [800, 1100, 950, 1500, 1200, 2100, 2500] }
+    });
 };
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * Async cache invalidation using SCAN with safety guardrails.
- * - Small COUNT (20) to minimize per-call blocking
- * - Max 50 iterations to prevent infinite loops under load
- * - Per-call timeout to prevent hanging
- * Runs as fire-and-forget from createAd.
- */
-async function invalidateCacheForAd(body: any): Promise<void> {
-  const segments = Array.isArray(body.segments)
-    ? body.segments
-    : [body.segments];
-  const channels = Array.isArray(body.channels) ? body.channels : ["ATM"];
-  const keys: string[] = [];
-  const MAX_SCAN_ITERATIONS = 50;
-
-  for (const seg of segments) {
-    for (const ch of channels) {
-      const pattern = `ad:${seg}:${ch}:*`;
-      let cursor = "0";
-      let iterations = 0;
-
-      do {
-        if (++iterations > MAX_SCAN_ITERATIONS) {
-          console.warn(
-            `[createAd] SCAN hit iteration cap (${MAX_SCAN_ITERATIONS}) for pattern: ${pattern}`,
-          );
-          break;
-        }
-
-        const scanPromise = redis.scan(cursor, "MATCH", pattern, "COUNT", 20);
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("SCAN timeout")), 500),
-        );
-
-        const [nextCursor, matchedKeys] = await Promise.race([
-          scanPromise,
-          timeoutPromise,
-        ]);
-        cursor = nextCursor;
-        if (matchedKeys.length > 0) {
-          keys.push(...matchedKeys);
-        }
-      } while (cursor !== "0");
-    }
-  }
-
-  if (keys.length > 0) {
-    await redis.del(...keys);
-    console.log(`[createAd] Invalidated ${keys.length} cache keys`);
-  }
-}

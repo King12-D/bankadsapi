@@ -14,15 +14,19 @@ export interface UserProfile {
   lastUpdated: number;
 }
 
+/** 
+ * adDocument represents a row from the 'campaigns' table.
+ * Note: Postgres returns snake_case by default, we'll map them here.
+ */
 export interface AdDocument {
-  _id: any;
+  id: string;
+  _id: string; // Alias for frontend compatibility
   title: string;
   imageUrl: string;
   videoUrl?: string;
   cta?: string;
   segments: string[];
   channels: string[];
-  locations?: string[];
   startDate: Date;
   endDate: Date;
   status: string;
@@ -30,10 +34,6 @@ export interface AdDocument {
   impressions: number;
   clicks: number;
   timeSlots?: string[];
-  advertiser?: {
-    name?: string;
-    contactEmail?: string;
-  };
 }
 
 export interface ScoredAd {
@@ -51,10 +51,6 @@ export interface ScoredAd {
 
 const getUserProfileKey = (customerId: string) => `userprofile:${customerId}`;
 
-/**
- * Retrieve or create a user profile from Redis.
- * Returns a new empty profile if Redis is unavailable or no profile exists.
- */
 export const getUserProfile = async (customerId: string): Promise<UserProfile> => {
   try {
     const key = getUserProfileKey(customerId);
@@ -67,7 +63,6 @@ export const getUserProfile = async (customerId: string): Promise<UserProfile> =
     console.warn("[targeting] Redis getUserProfile error:", error);
   }
 
-  // Return fresh profile
   return {
     customerId,
     impressions: [],
@@ -75,10 +70,6 @@ export const getUserProfile = async (customerId: string): Promise<UserProfile> =
   };
 };
 
-/**
- * Save user profile to Redis after recording an impression.
- * Uses pipeline for atomic set + expire.
- */
 export const recordImpression = async (
   customerId: string,
   adId: string,
@@ -87,16 +78,13 @@ export const recordImpression = async (
     const profile = await getUserProfile(customerId);
     const now = Date.now();
 
-    // Add new impression
     profile.impressions.push({ adId, timestamp: now });
 
-    // Prune impressions older than 24h to keep profile lean
     const oneDayAgo = now - 86400 * 1000;
     profile.impressions = profile.impressions.filter(
       (imp) => imp.timestamp > oneDayAgo,
     );
 
-    // Hard cap to prevent memory leaks under heavy traffic
     const MAX_IMPRESSIONS = 500;
     if (profile.impressions.length > MAX_IMPRESSIONS) {
       profile.impressions = profile.impressions.slice(-MAX_IMPRESSIONS);
@@ -111,16 +99,11 @@ export const recordImpression = async (
     await pipeline.exec();
   } catch (error) {
     console.error("[targeting] Redis recordImpression error:", error);
-    // Non-blocking: don't fail the ad serve if profile update fails
   }
 };
 
 // ─── CTR Calculator ──────────────────────────────────────────────────────────
 
-/**
- * Calculate click-through rate with minimum impression threshold.
- * Returns defaultCtr if impressions are below the minimum threshold.
- */
 export const calculateCtr = (impressions: number, clicks: number): number => {
   if (impressions < TARGETING_CONFIG.ctr.minimumImpressions) {
     return TARGETING_CONFIG.ctr.defaultCtr;
@@ -130,14 +113,6 @@ export const calculateCtr = (impressions: number, clicks: number): number => {
 
 // ─── Frequency Cap Filter ────────────────────────────────────────────────────
 
-/**
- * Filter out ads that the customer has seen too many times today
- * or within the cooldown period.
- *
- * Rules:
- * - Exclude ads shown >= maxImpressionsPerDay times in the last 24h
- * - Exclude ads shown within the last cooldownHours
- */
 export const filterByFrequencyCap = (
   ads: AdDocument[],
   profile: UserProfile,
@@ -147,7 +122,6 @@ export const filterByFrequencyCap = (
   const oneDayAgo = now - 86400 * 1000;
   const cooldownMs = cooldownHours * 3600 * 1000;
 
-  // Pre-build lookup map: adId -> { count, lastShown } (O(impressions) once)
   const impressionMap = new Map<string, { count: number; lastShown: number }>();
   for (const imp of profile.impressions) {
     if (imp.timestamp <= oneDayAgo) continue;
@@ -163,18 +137,16 @@ export const filterByFrequencyCap = (
   const excluded: string[] = [];
 
   const eligible = ads.filter((ad) => {
-    const adId = ad._id.toString();
+    const adId = ad.id.toString();
     const entry = impressionMap.get(adId);
 
-    if (!entry) return true; // Never shown — eligible
+    if (!entry) return true;
 
-    // Check daily cap
     if (entry.count >= maxImpressionsPerDay) {
       excluded.push(`${adId}:daily_cap(${entry.count}/${maxImpressionsPerDay})`);
       return false;
     }
 
-    // Check cooldown
     if (now - entry.lastShown < cooldownMs) {
       const minutesAgo = Math.round((now - entry.lastShown) / 60000);
       excluded.push(`${adId}:cooldown(${minutesAgo}min_ago)`);
@@ -189,10 +161,6 @@ export const filterByFrequencyCap = (
 
 // ─── Time Slot Filter ────────────────────────────────────────────────────────
 
-/**
- * Filter ads by time slot. Ads without timeSlots field pass through
- * (they're considered to run all day).
- */
 export const filterByTimeSlot = (
   ads: AdDocument[],
 ): { eligible: AdDocument[]; excluded: string[] } => {
@@ -203,7 +171,7 @@ export const filterByTimeSlot = (
     if (!ad.timeSlots || ad.timeSlots.length === 0) return true;
     const matches = ad.timeSlots.includes(currentSlot);
     if (!matches) {
-      excluded.push(`${ad._id}:timeslot(needs:${ad.timeSlots.join(",")} current:${currentSlot})`);
+      excluded.push(`${ad.id}:timeslot(needs:${ad.timeSlots.join(",")} current:${currentSlot})`);
     }
     return matches;
   });
@@ -213,43 +181,28 @@ export const filterByTimeSlot = (
 
 // ─── Composite Scoring ───────────────────────────────────────────────────────
 
-/**
- * Calculate a composite score for each ad based on:
- * - Priority weight (normalized)
- * - CTR (clicks/impressions or default)
- * - Recency (how fresh the ad campaign is — newer = higher)
- * - Content freshness (inverse of total impressions — less shown = higher)
- *
- * All components are normalized 0–1 and weighted according to config.
- */
 export const scoreAds = (ads: AdDocument[]): ScoredAd[] => {
   if (ads.length === 0) return [];
 
   const weights = TARGETING_CONFIG.scoreWeights;
 
-  // Find max values for normalization (guard against 0 to prevent NaN)
   const maxPriority = Math.max(...ads.map((a) => a.priority || 1), 1);
   const maxImpressions = Math.max(...ads.map((a) => a.impressions || 0), 1);
   const now = Date.now();
 
   return ads.map((ad) => {
-    // 1. Priority score (0–1)
     const priorityScore = (ad.priority || 1) / maxPriority;
 
-    // 2. CTR score (0–1, capped at 0.1 for normalization)
     const rawCtr = calculateCtr(ad.impressions, ad.clicks);
     const ctrScore = Math.min(rawCtr / 0.1, 1);
 
-    // 3. Recency score — newer campaigns score higher
-    const startTs = ad.startDate instanceof Date ? ad.startDate.getTime() : new Date(ad.startDate as unknown as string).getTime();
+    const startTs = ad.startDate instanceof Date ? ad.startDate.getTime() : new Date(ad.startDate).getTime();
     const ageMs = now - startTs;
     const maxAge = TARGETING_CONFIG.score.recencyMaxAgeDays * 86400 * 1000;
     const recencyScore = Math.max(0, 1 - ageMs / maxAge);
 
-    // 4. Freshness score — less shown ads get priority
     const freshnessScore = 1 - (ad.impressions || 0) / maxImpressions;
 
-    // Composite
     const score =
       weights.priority * priorityScore +
       weights.ctr * ctrScore +
